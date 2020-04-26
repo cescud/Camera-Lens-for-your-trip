@@ -5,6 +5,10 @@ import secrets # file that contains your API key
 import time
 import sqlite3
 import re
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 
 api_key = secrets.FLICKER_API_KEY
 api_secret = secrets.FLICKER_API_SECRET
@@ -206,9 +210,8 @@ def get_picture_url_from_photos(photos):
 
 
 
-#data = get_exif_from_photos(extract_photo_id(get_photos_from_keyword('antelopecanyon')))
-# CACHE_DICT = load_cache()
-# print(get_picture_url_from_photos(get_photos_from_keyword('antelopecanyon')))
+# data = get_exif_from_photos((get_photos_from_keyword('rocky')))
+
 
 
 
@@ -440,26 +443,168 @@ def update_db(lens_db, example_photos_db):
 
 def obtain_db():
     
-    create_lens_db()
+    create_db()
 
-    lens_links = ('https://lens-db.com/lens-lineup/canon-ef/', 'https://lens-db.com/lens-lineup/canon-ef-m/',
-                    'https://lens-db.com/lens-lineup/canon-ef-s/', 'https://lens-db.com/lens-lineup/canon-rf/',
-                    'https://lens-db.com/lens-lineup/fujifilm-x/', 'https://lens-db.com/lens-lineup/leica-l-35mm/',
-                    'https://lens-db.com/lens-lineup/nikon-f-35mm/', 'https://lens-db.com/lens-lineup/nikon-f-aps-c/',
-                    'https://lens-db.com/lens-lineup/nikon-z-35mm/', 'https://lens-db.com/lens-lineup/nikon-z-aps-c/',
-                    'https://lens-db.com/lens-lineup/sony-e/', 'https://lens-db.com/lens-lineup/sony-e-aps-c/')
+    lens_links = ('https://lens-db.com/system/canon-eos/', 'https://lens-db.com/system/canon-eos-m/',
+                    'https://lens-db.com/system/canon-eos-aps-c/', 'https://lens-db.com/system/canon-eos-r/',
+                    'https://lens-db.com/system/fujifilm-x/', 'https://lens-db.com/system/leica-l/',
+                    'https://lens-db.com/system/nikon-f/', 'https://lens-db.com/system/nikon-f-aps-c/',
+                    'https://lens-db.com/system/nikon-z/', 'https://lens-db.com/system/nikon-z-aps-c/',
+                    'https://lens-db.com/system/sony-e/', 'https://lens-db.com/system/sony-e-aps-c/')
     
     for link in lens_links:
         update_db(scrape_lens_db(link), make_list_for_example_photos_db(link))
 
+def process_command(brand, focal_length):
+    
+    result = []
+    conn = sqlite3.connect('lens_db.sqlite')
+    cur = conn.cursor()
+
+    command = f'''SELECT LensDataBase.LensName, Brand, LensMount, FocalLengthMin, FocalLengthMax, LensInfoLink,
+                    Example1, Example2, Example3 
+                    FROM LensDatabase
+                    JOIN LensExamplePhotos as Photos
+                    ON LensDatabase.LensName = Photos.LensName
+                    WHERE Brand = "{brand}"
+                    AND FocalLengthMin <={int(focal_length)}
+                    AND FocalLengthMax >= {int(focal_length)}'''
+    cur.execute(command)
+
+    for row in cur:
+        result.append(row)
+
+    return result
 
 
+if __name__ == "__main__":
+
+    CACHE_DICT = load_cache()
+    #obtain_db() #Uncomment this to update lens_db. However, this process takes very long about 30 minutes
+    search_dict = {}
+    url_list = []
+
+    search_term = input('Enter a place you would like to travel with your camera (e.g. Antelope Canyon), or "exit": ').lower().strip()
+
+    while search_term != 'exit':
+
+        # if search_term == 'exit':
+        #     break
+
+        if search_term == 'next':
+            break
+
+        else: 
+        
+            photo_obj = get_photos_from_keyword(search_term)
+            
+            exifs = get_exif_from_photos(photo_obj)
+            
+            #Focal Length Analysis
+            focal_length_list = get_focal_length_from_exifs(exifs)
+            focal_length_list = pd.DataFrame(focal_length_list)
+            focal_length_list = focal_length_list[0].value_counts()
+            
+            #Make and Brand Analysis
+
+            search_dict['brand'] = get_camera_make_from_exifs(exifs)
+            search_dict['model'] = get_model_from_exifs(exifs)
+            search_data = pd.DataFrame(search_dict)
+            search_make = search_data['brand'].value_counts()
+            search_model = search_data['model'].value_counts()
+
+            #URL list for example Photos
+            url_list = get_picture_url_from_photos(photo_obj)
 
 
+            # Graphical Representation of Focal Length, Brand, and Model 
+            
+            fig = make_subplots(rows=1, cols=3, subplot_titles=("Focal_Length", "Brand", "Model"))
+
+            fig.add_trace(
+                go.Bar(x=focal_length_list.index, y=focal_length_list),
+                row=1, col=1
+            )
+
+            fig.add_trace(
+                go.Bar(x=search_make.index, y=search_make),
+                row=1, col=2
+            )
+
+            fig.add_trace(
+                go.Bar(x=search_model.index, y=search_model),
+                row=1, col=3
+            )
+
+            fig.update_layout( title_text="Resulting Focal Length, Brand, and Model")
+            fig.show()
+
+            print("------------- List of Example Photos ------------- ")
+            i = 1
+            for url in url_list:
+                print(f"{i}. {url}")
+                i += 1
+            
+            
+            search_term = input('Enter another search term or "next" to pick your lenses for the trip or "exit" to end: ').lower().strip()
+
+    if search_term == 'exit':
+        pass
+    
+    else:
+        print('''List of camera lens brands 
+                1. Canon
+                2. Nikon
+                3. Sony
+                4. Sigma
+                5. Panasonic
+                6. Leica
+                7. Fujifilm''')
+        
+        LENS_BRAND = ('Canon', 'Nikon', 'Sony', 'Fujifilm', 'Sigma', 'Panasonic', 'Leica')
+        
+        search_term = input('Enter a lens brand of your choice or "exit" to end: ').strip()
 
 
+        while search_term != 'exit':
+            if search_term in LENS_BRAND:
+                brand = search_term
+                break
+            else:
+                print("Wrong input, please input one of the lens brands (Case Sensitive)")
+                print('''List of camera lens brands 
+                1. Canon
+                2. Nikon
+                3. Sony
+                4. Sigma
+                5. Panasonic
+                6. Leica''')
+                search_term = input('Enter a lens brand of your choice or "exit" to end: ').strip()
+
+        if search_term == 'exit':
+            pass
+        else:
+            search_term = input('''What focal length are you interested in (omit "mm" just enter a number)? or "exit" to end: ''')
+            while search_term != 'exit':
+                if search_term.isnumeric() == True:
+                    focal_length = search_term
+                    result = process_command(brand, focal_length)
+                    table = pd.DataFrame(result)
+                    pd.set_option("display.max_rows", None, "display.max_columns", None, "display.max_colwidth", 100)
+                    table = table.rename(columns={0: "LensName", 1: "Brand", 2: "LensMount",
+                                            3: "Min", 4: "Max", 
+                                            5: "LensInfo", 6: "Example1", 7: "Example2",
+                                            8: "Example3"})
+                    print(table)
+                    search_term = input('''What focal length are you interested in (omit "mm" just enter a number)? or "exit" to end  ''')
 
 
+                else:
+                    print("Invalid input")
+                    search_term = input('''What focal length are you interested in (omit "mm" just enter a number)? or "exit" to end  ''')
+
+
+print("Thank you and good bye")
 
 
 
