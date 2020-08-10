@@ -1,4 +1,4 @@
-# SI507 Final Project
+# Camera Lens pic for your trip
 Project Name: What Lens should you bring?
 Creator: HoJoon Kim
 Email: cescud@umich.edu
